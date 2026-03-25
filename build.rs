@@ -11,4 +11,19 @@ fn main() {
         .customize(protobuf_codegen::Customize::default().tokio_bytes(true))
         .run()
         .expect("Codegen failed.");
+
+    // Optional self-hosted hbbs: set RENDEZVOUS_SERVER and RS_PUB_KEY in the environment
+    // at compile time (e.g. GitHub Actions secrets mapped to env in workflows).
+    println!("cargo:rerun-if-env-changed=RENDEZVOUS_SERVER");
+    println!("cargo:rerun-if-env-changed=RS_PUB_KEY");
+    if let Ok(v) = std::env::var("RENDEZVOUS_SERVER") {
+        if !v.is_empty() {
+            println!("cargo:rustc-env=RENDEZVOUS_SERVER={v}");
+        }
+    }
+    if let Ok(v) = std::env::var("RS_PUB_KEY") {
+        if !v.is_empty() {
+            println!("cargo:rustc-env=RS_PUB_KEY={v}");
+        }
+    }
 }
