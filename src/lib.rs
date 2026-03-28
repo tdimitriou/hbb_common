@@ -254,10 +254,96 @@ where
     Ok(io::BufReader::new(file).lines())
 }
 
+/// Valid IDs for RegisterPk / Change ID:
+/// - **Numeric-only** (auto-assigned style): ASCII digits, length 6–32 (unchanged vs server minimum).
+/// - **Legacy custom** (pre–email-style): `^[a-zA-Z][\w-]{5,15}$` (6–16 chars total).
+/// - **New custom**: 8–32 chars, starts with a letter, exactly one `@`, local part `[a-zA-Z][a-zA-Z0-9._-]*`,
+///   domain part (after `@`) length ≥ 3 and alphanumeric only.
 pub fn is_valid_custom_id(id: &str) -> bool {
-    regex::Regex::new(r"^[a-zA-Z][\w-]{5,15}$")
-        .unwrap()
-        .is_match(id)
+    if id.is_empty() {
+        return false;
+    }
+    if id.chars().all(|c| c.is_ascii_digit()) {
+        let len = id.len();
+        return (6..=32).contains(&len);
+    }
+    if is_valid_custom_id_legacy(id) {
+        return true;
+    }
+    is_valid_custom_id_email_style(id)
+}
+
+fn is_valid_custom_id_legacy(id: &str) -> bool {
+    lazy_static::lazy_static! {
+        static ref LEGACY: regex::Regex =
+            regex::Regex::new(r"^[a-zA-Z][\w-]{5,15}$").unwrap();
+    }
+    LEGACY.is_match(id)
+}
+
+fn is_valid_custom_id_email_style(id: &str) -> bool {
+    let len = id.len();
+    if !(8..=32).contains(&len) {
+        return false;
+    }
+    let (left, right) = match id.split_once('@') {
+        Some(pair) => pair,
+        None => return false,
+    };
+    if left.is_empty() || right.is_empty() || right.contains('@') {
+        return false;
+    }
+    let mut left_chars = left.chars();
+    let Some(first) = left_chars.next() else {
+        return false;
+    };
+    if !first.is_ascii_alphabetic() {
+        return false;
+    }
+    for c in left_chars {
+        if !matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '.' | '-' | '_') {
+            return false;
+        }
+    }
+    if right.len() < 3 {
+        return false;
+    }
+    if !right.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return false;
+    }
+    true
+}
+
+#[cfg(test)]
+mod custom_id_tests {
+    use super::*;
+
+    #[test]
+    fn numeric_ids() {
+        assert!(is_valid_custom_id("123456"));
+        assert!(is_valid_custom_id("123456789"));
+        assert!(!is_valid_custom_id("12345"));
+        assert!(!is_valid_custom_id(""));
+    }
+
+    #[test]
+    fn legacy_custom() {
+        assert!(is_valid_custom_id("abcdef"));
+        assert!(is_valid_custom_id("MyHost-01"));
+        assert!(!is_valid_custom_id("1abcdef"));
+    }
+
+    #[test]
+    fn email_style() {
+        assert!(is_valid_custom_id("user.name@abc"));
+        assert!(is_valid_custom_id("Ab@x1234"));
+        assert!(!is_valid_custom_id("user@@ab"));
+        assert!(!is_valid_custom_id("user@ab"));
+        assert!(!is_valid_custom_id("user@ab!c"));
+        assert!(!is_valid_custom_id("1user@abcd"));
+        assert!(!is_valid_custom_id("ab@cde")); // total length < 8
+        assert!(is_valid_custom_id("user@abcd"));
+    }
 }
 
 // Support 1.1.10-1, the number after - is a patch version.
